@@ -7,9 +7,12 @@ variable "resource_group_name" {
 }
 
 variable "location" {
-  description = "The Azure region where resources will be created"
   type        = string
-  default     = "West US 2"
+  description = "The location for the resources"
+  validation {
+    condition     = var.location == "East US"
+    error_message = "The location must be East US."
+  }
 }
 
 variable "app_service_plan_name" {
