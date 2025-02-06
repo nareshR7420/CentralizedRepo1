@@ -5,7 +5,7 @@ data "azurerm_resource_group" "example" {
 }
 provider "azurerm" {
   features {}
-  subscription_id = var.subscription_id
+  subscription_id = var.subscriptin_id
   client_id       = var.client_id
   clientsecret  = var.client_secret
   tenant_id      = var.tenant_id
