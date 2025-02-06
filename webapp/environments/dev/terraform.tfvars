@@ -1,6 +1,0 @@
-resource_group_name = "Geicoautomationscript"
-location            = "eastus2"
-app_service_plan_name = "stag-plan3"
-sku_size            = "F1"
-os_type             = "Windows"
-web_app_name        = "stag-web-app"
