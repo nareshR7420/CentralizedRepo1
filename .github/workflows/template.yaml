@@ -1,4 +1,4 @@
-name: Terraform Deployment with Unit Test Task
+name: Terraform Deployment with Checkov
 
 on:
   push:
@@ -9,11 +9,11 @@ on:
       resourcetype:
         description: 'resourcetype to deploy (e.g., VM , Webapp)'
         required: true
-        default: 'vm'  # Default value for resourcetype input
-      environment:
-        description: 'Environment to deploy (e.g., dev, prod)'
-        required: false
-        default: 'dev'  # Default value for environment input
+      #   default: 'vm'  # Default value for resourcetype input
+      # environment:
+      #   description: 'Environment to deploy (e.g., dev, prod)'
+      #   required: false
+      #   default: 'dev'  # Default value for environment input
 
 jobs:
   terraform-deployment:
@@ -21,7 +21,6 @@ jobs:
 
     env:
       TF_WORKING_DIR: ${{ github.workspace }}/${{ github.event.inputs.resourcetype }}/modules/${{ github.event.inputs.resourcetype }}  # Correct working directory
-      GO_VERSION: '1.21.0'  # Upgraded Go version to 1.21
       TF_VERSION: '1.3.5'  # Specify the Terraform version (as in your variables)
 
     steps:
@@ -35,130 +34,52 @@ jobs:
         echo "Listing the contents of the working directory..."
         ls -al $GITHUB_WORKSPACE
 
-    # # Step 3: Setup Azure CLI (if required for deployment)
-    # - name: Setup Azure Login using Service Principal
-    #   uses: azure/login@v1
-    #   with:
-    #     creds: ${{ secrets.AZURE_CREDENTIALS }}  # Service Principal credentials in JSON format
-    - name: Setup Azure Login using Service Principal
-      run: |
-        # Login to Azure using service principal
-        az login --service-principal \
-          -u a2d89136-b086-4755-9f98-af856c2d8c30 \
-          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
-          --tenant 13085c86-4bcb-460a-a6f0-b373421c6323
-
-    # Step 5: Retrieve secret from Azure Key Vault
-    - name: Retrieve secret from Azure Key Vault
-      id: get_secret
-      run: |
-        secret_value=$(az keyvault secret show --name "clientsecret1" --vault-name GitHubKVault --query value -o tsv)
-        echo "SECRET_VALUE=$secret_value" >> $GITHUB_ENV
-
-    # Step 6: Use the secret value
-    - name: Use the secret value
-      run: |
-        echo "The secret value is: $SECRET_VALUE"  
-
-    # Step 4: Set up Go
-    - name: Set up Go ${{ env.GO_VERSION }}
-      uses: actions/setup-go@v3
-      with:
-        go-version: ${{ env.GO_VERSION }}
-
-    # Step 5: Install Terraform
+    # Step 3: Install Terraform
     - name: Install Terraform ${{ env.TF_VERSION }}
       uses: hashicorp/setup-terraform@v2
       with:
         terraform_version: ${{ env.TF_VERSION }}
 
-    # Step 6: Clean Go cache (to resolve dependency issues)
-    - name: Clean Go Cache
-      run: |
-        echo "Cleaning Go Cache..."
-        go clean -modcache
-
-    # Step 7: Initialize Terraform
+    # Step 4: Initialize Terraform
     - name: Terraform Init
       run: |
         echo "Initializing Terraform..."
         terraform -chdir=${{ env.TF_WORKING_DIR }} init -upgrade
 
-    # Step 8: Validate Terraform configuration
+    # Step 5: Run Checkov to analyze Terraform files
+    - name: Run Checkov on Terraform code
+      run: |
+        echo "Running Checkov for security analysis on Terraform configuration..."
+        pip install checkov  # Install Checkov
+        checkov -d ${{ env.TF_WORKING_DIR }}  # Run Checkov on the Terraform directory
+
+    # Step 6: Validate Terraform configuration
     - name: Terraform Validate
       run: |
         echo "Validating Terraform configuration..."
         terraform -chdir=${{ env.TF_WORKING_DIR }} validate
 
-    # Step 9: Run Unit Tests using Go with Terratest
-    - name: Run Unit Tests with Terratest
-      run: |
-        echo "Running Unit Tests with Terratest"
-        cd ${{ env.TF_WORKING_DIR }}
-        export TF_VAR_ENV="${{ github.event.inputs.environment }}"
-
-        # Initialize Go module if not already initialized
-        if [ ! -f "go.mod" ]; then
-          echo "Initializing Go module..."
-          go mod init $(basename ${{ env.TF_WORKING_DIR }})
-        else
-          echo "go.mod already exists, skipping initialization."
-        fi
-
-        # Install dependencies
-        echo "Installing Go dependencies..."
-        if ! go list -m github.com/gruntwork-io/terratest/modules/terraform > /dev/null 2>&1; then
-          echo "Dependency not found, fetching..."
-          go get github.com/gruntwork-io/terratest/modules/terraform
-        else
-          echo "Dependency already exists, skipping download..."
-        fi
-        
-        # Explicitly install golang.org/x/crypto
-        go get golang.org/x/crypto
-        
-        go mod tidy
-        go test -v
-
-    # Step 10: Terraform Plan with environment-specific variables
+    # Step 7: Terraform Plan with environment-specific variables
     - name: Terraform Plan
       run: |
         echo "Running Terraform Plan with environment-specific tfvars..."
-        
-        # if [ -z "${{ github.event.inputs.environment }}" ]; then
-        #   ENV_TFVARS="${{ github.event.inputs.resourcetype }}/terraform.tfvars"  # Default path if no environment is provided
-        #   echo "No environment provided, using default tfvars file: ${ENV_TFVARS}"
-        # else
-        #   ENV_TFVARS="${{ github.event.inputs.resourcetype }}/environments/${{ github.event.inputs.environment }}/terraform.tfvars"
-        #   echo "Using environment-specific tfvars file: ${ENV_TFVARS}"
-        # fi
-        
         ENV_TFVARS="${{ github.event.inputs.resourcetype }}/environments/${{ github.event.inputs.environment }}/terraform.tfvars"
         echo "Using environment-specific tfvars file: ${ENV_TFVARS}"
     
         # Plan with correct path to tfvars file
         terraform -chdir=${{ env.TF_WORKING_DIR }} plan -out=tfplan -var-file=${{ github.workspace }}/${ENV_TFVARS}
 
-    # Step 11: Apply Terraform Plan (auto-approve for CI/CD)
-    - name: Terraform Apply
-      run: |
-        echo "Applying Terraform Plan..."
+    # # Step 8: Apply Terraform Plan (auto-approve for CI/CD)
+    # - name: Terraform Apply
+    #   run: |
+    #     echo "Applying Terraform Plan..."
+    #     ENV_TFVARS="${{ github.event.inputs.resourcetype }}/environments/${{ github.event.inputs.environment }}/terraform.tfvars"
+    #     echo "Using environment-specific tfvars file: ${ENV_TFVARS}"
         
-        # if [ -z "${{ github.event.inputs.environment }}" ]; then
-        #   ENV_TFVARS="${{ github.event.inputs.resourcetype }}/terraform.tfvars"  # Default path if no environment is provided
-        #   echo "No environment provided, using default tfvars file: ${ENV_TFVARS}"
-        # else
-        #   ENV_TFVARS="${{ github.event.inputs.resourcetype }}/environments/${{ github.event.inputs.environment }}/terraform.tfvars"
-        #   echo "Using environment-specific tfvars file: ${ENV_TFVARS}"
-        # fi
-        
-        ENV_TFVARS="${{ github.event.inputs.resourcetype }}/environments/${{ github.event.inputs.environment }}/terraform.tfvars"
-        echo "Using environment-specific tfvars file: ${ENV_TFVARS}"
-        
-        # Apply with correct path to tfvars file
-        terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve -var-file=${{ github.workspace }}/${ENV_TFVARS}
+    #     # Apply with correct path to tfvars file
+    #     terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve -var-file=${{ github.workspace }}/${ENV_TFVARS}
 
-    # Step 12: Remove terraform.lock file after apply
+    # Step 9: Remove terraform.lock file after apply
     - name: Remove terraform.lock.hcl
       run: |
         echo "Removing terraform.lock.hcl after applying..."
